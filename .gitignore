@@ -4,3 +4,7 @@ code/data/
 __pycache__/
 *.pyc
 paper/tables/
+# figures written by paper/scripts/make_figures_r12.py; only the trajectory figure is kept as a reference
+paper/figures/*
+!paper/figures/fig_traj.pdf
+!paper/figures/fig_traj.png

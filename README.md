@@ -13,7 +13,7 @@ number, table, and data figure of the manuscript (revision R12, 25 October 2026)
 | `code/tools/server/` | shell scripts used on the training server, with the run log | |
 | `paper/scripts/` | statistics, tables, data figures, trajectory examples, and the number and style checks of the manuscript | |
 | `paper/data/` | `stats_r12.json` (every reported statistic), `figdata_r12.json` (figure data), `difficulty_r12.json` (model-free client statistics), and a readable dump | |
-| `paper/data/qualitative/` | trajectory examples: selection rule, per-window errors of all Q5 and lane-change test windows, and the trajectories and raw windows of the selected NGSIM examples | |
+| `paper/data/qualitative/` | trajectory examples: selection rule, per-window errors of all Q5 and lane-change test windows, and the drawn trajectories and raw frames of the 12 selected windows (six NGSIM, six highD) | |
 | `paper/figures/fig_traj.*`, `paper/fig_traj_snippet.tex` | trajectory figure, with its LaTeX figure environment and paragraph | |
 | `paper/dataset_meta/` | `meta.json`, `MANIFEST.json` (size and SHA-256 of every file), and model-free statistics of the two processed datasets | |
 | `paper/fonts_figures/` | URW Nimbus Roman fonts used in the figures, with their licenses | |
@@ -72,22 +72,36 @@ python -m fedtraj.manifest write data/fedtraj_highd
 in the paper, for comparison with a rebuild (`meta.json` also records its creation time, so it always differs). The NGSIM dataset is rebuilt in the same way with
 `python -m fedtraj.prep_ngsim --src <folder with the US-101 and I-80 zip files> --out data/fedtraj_ngsim`.
 
-## Trajectory examples
+## Figures and trajectory examples
+
+```
+python paper/scripts/make_figures_r12.py           # data figures and the trajectory figure -> paper/figures/
+python paper/scripts/check_qualitative_r12.py      # checks the trajectory examples (numpy only)
+python paper/scripts/check_qualitative_r12.py --results results_fedtraj_20261025 --code code   # also re-runs the checkpoints (torch)
+```
+
+Neither needs the processed datasets or Git LFS files, except the checkpoints for the optional re-run.
 
 `paper/data/qualitative/SELECTION_RULE.md` fixes which test windows are shown, before any per-window prediction
 was computed: in each main setting (NGSIM-natural, highD-motion) and each stratum (Q5, the quintile with the
 largest constant-velocity error at 5 s; LC, windows with more than 3 m of lateral displacement at 5 s), the windows
 nearest to the 10th, 50th, and 90th percentiles of the 5 s error of CQS minus that of FedAvg, for the seed-one
-checkpoints. `paper/scripts/make_qualitative_r12.py` applies the rule. It needs torch, the checkpoints, and the
-processed datasets, and it first checks that its per-window errors reproduce the test, Q5, and lane-change RMSE in
-each `result.json` (largest difference 3.4e-4 m). `qualitative_r12.json` records the checks, the stratum sizes, and
-the selected windows.
+checkpoints. `paper/scripts/make_qualitative_r12.py` applied the rule to the full test splits. It needs torch, the
+checkpoints, and the processed datasets, and it first checks that its per-window errors reproduce the test, Q5, and
+lane-change RMSE in each `result.json` (largest difference 3.4e-4 m). `qualitative_r12.json` records the checks, the
+stratum sizes, and the selected windows.
+
+`check_qualitative_r12.py` repeats the selection from `stratum_errors_<setting>.csv` (all Q5 and lane-change test
+windows with their 5 s errors), recomputes the history, truth, and constant-velocity prediction of the 12 windows
+from their raw frames (`selected_windows_<setting>.npz`), and, with torch and the checkpoints, recomputes the
+predictions of FedAvg, CQS, and CQS+FedNova and compares them with the figure data
+(`selected_trajectories_<setting>.csv`; differences of a few millimeters come from GPU and CPU arithmetic).
 
 ## Data sources and licenses
 
 - NGSIM US-101 and I-80: U.S. Department of Transportation, Federal Highway Administration (public data). The
   processed NGSIM dataset in `data/` is derived from it.
 - highD: free for non-commercial use, with access granted per request by levelXdata
-  (https://levelxdata.com/highd-dataset/). The processed highD data and the raw highD windows of the trajectory
-  examples are not included. The highD checkpoints, the highD per-window errors, and the six highD windows drawn in
-  the trajectory figure are derived from highD.
+  (https://levelxdata.com/highd-dataset/). The processed highD dataset is not included; to use it, request highD
+  from levelXdata and rebuild it with `fedtraj.prep_highd`. The highD checkpoints, the highD per-window errors, and
+  the six highD windows of the trajectory figure (an excerpt of 6 of the 66,222 test windows) are derived from highD.

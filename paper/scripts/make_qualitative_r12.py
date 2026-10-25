@@ -16,7 +16,8 @@ Outputs (data/qualitative/)
     selected_trajectories_<setting>.csv   history, truth, CV, and the three predictions of the six selected windows
                                  of each setting (m, relative to the last observed position)
     selected_windows_ngsim.npz   raw 80 x 44 frames of the six selected NGSIM windows (to re-run the checkpoints)
-    selected_windows_highd.npz   the same for highD (derived from highD: keep out of public repositories)
+    selected_windows_highd.npz   the same for the six highD windows (an excerpt of highD: the windows of the figure)
+The selection and the figure data can be checked without the processed datasets: scripts/check_qualitative_r12.py.
 """
 from __future__ import annotations
 

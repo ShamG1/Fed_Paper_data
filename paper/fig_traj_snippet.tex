@@ -1,0 +1,15 @@
+% Trajectory examples: figure environment and one paragraph, ready to paste into Section VII-C (Error by Window
+% Difficulty), after the paragraph that ends with "lowered the Q5 error by 9.20%".
+% Figure file: figures/fig_traj.pdf (scripts/make_figures_r12.py). Data: data/qualitative/, written by
+% scripts/make_qualitative_r12.py; selection rule in data/qualitative/SELECTION_RULE.md (fixed before the
+% predictions were computed). Every number below is in data/qualitative/qualitative_r12.json.
+% Also add Fig.~\ref{fig:traj} to the list of script-generated data figures in the acknowledgment.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig_traj.pdf}
+\caption{Test windows from the quintile with the largest CV error (Q5) and from the lane-change windows (LC), with the predictions of the seed-one checkpoints. In each benchmark and stratum, a rule fixed before the predictions were computed selects the windows nearest to the 10th (P10), 50th (P50), and 90th (P90) percentiles of $\delta$, the $5$\,s displacement error of CQS minus that of FedAvg, so CQS is better than FedAvg in the left column and worse in the right column. Panel titles give the $5$\,s displacement errors of FedAvg and CQS. Positions are relative to the last observed position; the vehicle drives to the right, positive lateral values lie to its left, markers are $1$\,s apart with enlarged markers at $5$\,s, and the lateral axis is magnified.}
+\label{fig:traj}
+\end{figure*}
+
+Fig.~\ref{fig:traj} shows single windows of these two strata. To avoid choosing examples by their outcome, the windows were fixed by a rule set before the predictions were computed (caption of Fig.~\ref{fig:traj}). With the seed-one checkpoints, CQS was closer than FedAvg to the true $5$\,s position on $57.8\%$ of the $10{,}024$ Q5 windows and on $40.8\%$ of the $284$ lane-change windows of NGSIM, and on $56.9\%$ of the $13{,}245$ Q5 windows and $52.5\%$ of the $832$ lane-change windows of highD, with median $\delta$ of $-0.14$, $+0.16$, $-0.06$, and $-0.02$\,m. In the left column of Fig.~\ref{fig:traj}, CQS was $0.59$ to $1.22$\,m closer to the truth than FedAvg, and in the right column $0.48$ to $1.47$\,m farther. In the six Q5 windows the vehicle slowed down (NGSIM) or sped up (highD), and CV missed the true $5$\,s position by $5.40$ to $14.90$\,m, almost entirely along the lane, whereas the three federated models missed it by $0.07$ to $3.68$\,m. No model anticipated the lane changes in Fig.~\ref{fig:traj}(d) and (e), which had barely begun or not begun at the last observed frame: every prediction, CV included, stayed near the initial lateral position while the vehicle moved about $3$\,m to the left. When the lateral motion was already under way (Fig.~\ref{fig:traj}(f) and (j)--(l)), the models followed it and ended short of the final lateral offset in three windows and beyond it in one.

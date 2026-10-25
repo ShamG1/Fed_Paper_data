@@ -1,0 +1,275 @@
+{
+ "dataset": "fedtraj_ngsim",
+ "natural": {
+  "clients": [
+   {
+    "client": 0,
+    "windows": 53469,
+    "resid_rms": 2.7665976241447803,
+    "tail_share": 0.6564173189543749,
+    "bias_body_5s": [
+     0.018,
+     1.463
+    ],
+    "bias_tail_5s": [
+     0.023,
+     3.028
+    ]
+   },
+   {
+    "client": 1,
+    "windows": 65945,
+    "resid_rms": 2.6234832056747246,
+    "tail_share": 0.6877489880679735,
+    "bias_body_5s": [
+     0.022,
+     0.498
+    ],
+    "bias_tail_5s": [
+     -0.03,
+     0.625
+    ]
+   },
+   {
+    "client": 2,
+    "windows": 72633,
+    "resid_rms": 2.7089451843251378,
+    "tail_share": 0.6931315309095243,
+    "bias_body_5s": [
+     0.014,
+     0.352
+    ],
+    "bias_tail_5s": [
+     -0.011,
+     0.941
+    ]
+   },
+   {
+    "client": 3,
+    "windows": 58714,
+    "resid_rms": 2.6455371126742544,
+    "tail_share": 0.7301441954035744,
+    "bias_body_5s": [
+     0.019,
+     0.28
+    ],
+    "bias_tail_5s": [
+     0.005,
+     -1.042
+    ]
+   },
+   {
+    "client": 4,
+    "windows": 75273,
+    "resid_rms": 2.449449807530896,
+    "tail_share": 0.7484405370043907,
+    "bias_body_5s": [
+     0.006,
+     0.232
+    ],
+    "bias_tail_5s": [
+     0.035,
+     -0.428
+    ]
+   },
+   {
+    "client": 5,
+    "windows": 85616,
+    "resid_rms": 2.253289157311573,
+    "tail_share": 0.7377620983760411,
+    "bias_body_5s": [
+     0.007,
+     0.284
+    ],
+    "bias_tail_5s": [
+     0.013,
+     0.139
+    ]
+   }
+  ],
+  "resid_rms_max_over_min": 1.2278040814990836,
+  "tail_share_median": 0.7116378631565494,
+  "between_over_within_5s_body_latlon": [
+   0.007,
+   0.093
+  ],
+  "between_over_within_5s_tail_latlon": [
+   0.016,
+   0.09
+  ],
+  "names": [
+   "US101-0750",
+   "US101-0805",
+   "US101-0820",
+   "I80-1600",
+   "I80-1700",
+   "I80-1715"
+  ]
+ },
+ "motion": {
+  "clients": [
+   {
+    "client": 0,
+    "windows": 11244,
+    "resid_rms": 2.704956578340177,
+    "tail_share": 0.6972496826287216,
+    "bias_body_5s": [
+     0.031,
+     0.003
+    ],
+    "bias_tail_5s": [
+     -0.007,
+     -3.015
+    ]
+   },
+   {
+    "client": 1,
+    "windows": 66866,
+    "resid_rms": 2.762738970816288,
+    "tail_share": 0.6997367762113404,
+    "bias_body_5s": [
+     0.005,
+     0.534
+    ],
+    "bias_tail_5s": [
+     0.017,
+     0.285
+    ]
+   },
+   {
+    "client": 2,
+    "windows": 122127,
+    "resid_rms": 2.138346101313544,
+    "tail_share": 0.7330021141811252,
+    "bias_body_5s": [
+     0.005,
+     0.198
+    ],
+    "bias_tail_5s": [
+     -0.001,
+     0.491
+    ]
+   },
+   {
+    "client": 3,
+    "windows": 32963,
+    "resid_rms": 2.307647128989334,
+    "tail_share": 0.6372116733987537,
+    "bias_body_5s": [
+     0.021,
+     1.194
+    ],
+    "bias_tail_5s": [
+     -0.006,
+     4.329
+    ]
+   },
+   {
+    "client": 4,
+    "windows": 21390,
+    "resid_rms": 2.771070729807315,
+    "tail_share": 0.6684229787848824,
+    "bias_body_5s": [
+     0.02,
+     1.336
+    ],
+    "bias_tail_5s": [
+     0.017,
+     3.865
+    ]
+   },
+   {
+    "client": 5,
+    "windows": 14748,
+    "resid_rms": 2.8504120621473312,
+    "tail_share": 0.6764748979969397,
+    "bias_body_5s": [
+     0.106,
+     0.852
+    ],
+    "bias_tail_5s": [
+     0.025,
+     2.05
+    ]
+   },
+   {
+    "client": 6,
+    "windows": 15238,
+    "resid_rms": 2.217654171834125,
+    "tail_share": 0.662509571952094,
+    "bias_body_5s": [
+     0.042,
+     1.191
+    ],
+    "bias_tail_5s": [
+     -0.014,
+     3.581
+    ]
+   },
+   {
+    "client": 7,
+    "windows": 89559,
+    "resid_rms": 2.611936160769203,
+    "tail_share": 0.6981690705772301,
+    "bias_body_5s": [
+     0.007,
+     0.101
+    ],
+    "bias_tail_5s": [
+     0.005,
+     -0.916
+    ]
+   },
+   {
+    "client": 8,
+    "windows": 31778,
+    "resid_rms": 3.1779452452016748,
+    "tail_share": 0.7298074417422019,
+    "bias_body_5s": [
+     0.011,
+     0.323
+    ],
+    "bias_tail_5s": [
+     0.011,
+     -1.392
+    ]
+   },
+   {
+    "client": 9,
+    "windows": 5737,
+    "resid_rms": 3.636046308553601,
+    "tail_share": 0.7996628573546575,
+    "bias_body_5s": [
+     0.01,
+     1.081
+    ],
+    "bias_tail_5s": [
+     0.075,
+     0.694
+    ]
+   }
+  ],
+  "resid_rms_max_over_min": 1.7004012149015768,
+  "tail_share_median": 0.6977093766029758,
+  "between_over_within_5s_body_latlon": [
+   0.022,
+   0.098
+  ],
+  "between_over_within_5s_tail_latlon": [
+   0.01,
+   0.139
+  ],
+  "names": [
+   "M0",
+   "M1",
+   "M2",
+   "M3",
+   "M4",
+   "M5",
+   "M6",
+   "M7",
+   "M8",
+   "M9"
+  ]
+ }
+}

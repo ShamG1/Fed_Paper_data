@@ -1,0 +1,38 @@
+{
+ "frames.npy": {
+  "bytes": 2792892208,
+  "sha256": "37e73d1352c5ab43ae5b7aac56e9235c0ada3dc145f3fef431aed50f83da818d"
+ },
+ "meta.json": {
+  "bytes": 23016,
+  "sha256": "c7cba95b0393ebee4980cff9d2414b42a6964524719ec657734cfdc01144a18f"
+ },
+ "tracks.npz": {
+  "bytes": 6080846,
+  "sha256": "e9f70bafee15bfc35501890036562036849d33cc3baa4a95eed287798369cd38"
+ },
+ "win_test.npy": {
+  "bytes": 529904,
+  "sha256": "b18d6e684e53487d06996ae6cbdcac3e7fa48f1252f91ea0718cb12bb0a40975"
+ },
+ "win_train.npy": {
+  "bytes": 4207128,
+  "sha256": "1c9fbcf0f1bd8f56d9c06e57fa58063d6a96497d1554453eabd26fe2490fea1c"
+ },
+ "win_valid.npy": {
+  "bytes": 529208,
+  "sha256": "c98fdd2ca9b71456f5c464adec7c629b41a91d0ce51e3d126be3ea93c4657670"
+ },
+ "wtrack_test.npy": {
+  "bytes": 265016,
+  "sha256": "53f6bd2ecdbbe263bb7efa96c63ffd81dfcfb757cbf9378c96959f9e7df5862d"
+ },
+ "wtrack_train.npy": {
+  "bytes": 2103628,
+  "sha256": "b6a8aa6a5347b37fe457b3b60b84c79bdb6b151a7e8b529748e839c06fe51d7f"
+ },
+ "wtrack_valid.npy": {
+  "bytes": 264668,
+  "sha256": "6eaff47ae1dcc2f6f0fe237d8c9ff165746e6cff1a5c0b7571c268c5123e8ce8"
+ }
+}

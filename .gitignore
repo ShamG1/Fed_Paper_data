@@ -1,0 +1,6 @@
+# unpacked archives and generated files
+results_fedtraj_20261025/
+code/data/
+__pycache__/
+*.pyc
+paper/tables/

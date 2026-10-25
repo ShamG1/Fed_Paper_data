@@ -69,7 +69,7 @@ python -m fedtraj.manifest write data/fedtraj_highd
 ```
 
 `paper/dataset_meta/fedtraj_highd/MANIFEST.json` holds the size and SHA-256 of every file of the highD dataset used
-in the paper, for comparison with a rebuild. The NGSIM dataset is rebuilt in the same way with
+in the paper, for comparison with a rebuild (`meta.json` also records its creation time, so it always differs). The NGSIM dataset is rebuilt in the same way with
 `python -m fedtraj.prep_ngsim --src <folder with the US-101 and I-80 zip files> --out data/fedtraj_ngsim`.
 
 ## Trajectory examples

@@ -84,6 +84,39 @@ timing 阶段必须独占 GPU（`--per-gpu 1`，不要用 `--mem-gb`），否则
 - 不按结果改协议：轮数（30）、本地 epoch（3）、学习率和 CQS/UDR 的超参数都保持 pilot 的设定。FedProx 的 μ 和静态权重的 β 只按 pilot 种子 1 的验证集选择一次。
 - 主实验之后新增的对照（2026-10-24 写定，在这些运行开始之前）：主实验显示单独的 CQS 在 highD 上不如 FedProx 和 FedNova，所以补 CQS + FedNova、CQS + FedProx（ssbr-combo），检验 UDR 是否只是换一种已有的服务器或本地规则就能得到的效果。这组运行在论文中注明是“看到主实验结果之后加入的”，不论结果如何都报告。种子 1–5，之后不增减；μ 取 pilot 为 FedProx 选出的值（两个设置都是 1e-2），不为组合重新调参，论文里说明这一点可能略微不利于组合。比较：CQS+FedNova − Fed-SSBR、CQS+FedProx − Fed-SSBR（UDR 与已有规则相比），CQS+FedNova − FedNova、CQS+FedProx − FedProx（CQS 能否叠加在已有规则上），口径与上面相同。
 
+### 0.5 R16 之后的补充检查（2026-10-26）
+
+R16 的全部结果出来之后，针对审稿意见加的两组检查：同样访问次数下进入时机的作用，以及换一个预测骨干。阶段定义（`jobs.py` 的 `r17-*`）在这些运行开始之前写定，不论结果如何都报告，论文中注明是看到 R16 结果之后加入的。
+
+| 论文中的名称 | 参数 |
+|---|---|
+| CQS 降序配额（同一排序，配额 1.0、0.8、0.6） | `--algo cqs --cqs-direction descending` |
+| BatchNorm 统计量重估（本地 epoch 结束后用本客户端全部窗口） | `--bn-recal all` |
+| LSTM 骨干（无 CV 锚） | `--backbone lstm --eval-batch 1024` |
+
+- 降序配额：排序与 CQS 相同，每轮算一次；各 epoch 的窗口集合是 CQS 的倒序，所以每个窗口的访问次数与 CQS 完全相同（3 : 2 : 1），只是损失最高的 20% 在第一个 epoch 使用，最后一个 epoch 只有损失最低的 60%。
+- BN 重估：PyTorch 默认 momentum 0.1，上传的 running 统计量几乎都来自最后一个 epoch，降序时它只含低损失窗口。重估在本地 epoch 之后，用本客户端全部窗口做一遍训练模式的前向（不求梯度，累积平均），然后恢复 momentum。主比较的升序、降序都重估；两者再各跑 3 个不重估的种子，看重估本身的影响。
+- LSTM：Deo 和 Trivedi（2018）V-LSTM 的结构（输入嵌入、单层 LSTM 编码器、编码隐状态重复作为每步解码输入、单层 LSTM 解码器、线性输出），输入同样的 44 通道帧序列，输出按训练集位移的逐步均值和标准差标准化的位移，不加 CV 外推；默认初始化，没有 BatchNorm 和 dropout，210,050 个参数。评估和打分的 batch 为 1024：cuDNN LSTM 在 4096 时需要约 2.4 GB 额外显存，batch 大小不改变逐窗口预测。
+- 学习率：只按 FedAvg 的验证误差（种子 1）在 5e-4、1e-3、2e-3 中选，`--r17-select` 写入 `runs_r17/tuned_r17.json`；选出的 FedAvg 在验证集上不低于 CV 时不跑 LSTM 主实验。结果：NGSIM 选 5e-4（网格下端），highD 选 1e-3，两者都低于 CV。
+
+本地核对（10-26）：
+
+- 降序与升序：同一客户端上每个窗口的访问次数相同，各 epoch 的窗口集合正好是升序的倒序；损失最高的 20% 只访问一次，升序时在最后一个 epoch，降序时在第一个。
+- BN 重估：6 个 BatchNorm 层都重估，累积的 batch 数等于 ⌈n_i / 512⌉，第一层的 running mean 与逐 batch 均值的平均相差 4.5e-8，之后 momentum 恢复为 0.1。
+- 原有 18 个配置在 CPU 上与修改前逐位相同（测试误差、分层误差、验证曲线和逐轮日志）；此前 12 个阶段的任务列表（共 630 个）不变。
+- r17-smoke（16 个 2 轮小样本任务）在两套数据上都能跑通。
+
+运行顺序（第二台服务器，两块 RTX 4090，见 `tools/server/README.md`，由 `tools/server/run_r17.sh` 依次执行）：
+
+| 顺序 | 阶段 | 任务数 | 说明 |
+|---|---|---|---|
+| 1 | r17-smoke | 16 | 小样本 2 轮，任何一个失败就停止（输出在 `runs_r17_smoke/`） |
+| 2 | r17-lstm-pilot | 6 | LSTM 的 FedAvg，种子 1，三个学习率 |
+| 3 | — | — | `python -m fedtraj.jobs --r17-select` |
+| 4 | r17-main | 82 | r17-order 44 个（种子 1–8：CQS+BN、CQS 降序+BN；种子 1–3：CQS 降序、CQS），然后 r17-lstm 38 个（FedAvg、CQS、FedBSS-fixed、CQS-random，种子 1–5；FedAvg 的种子 1 已在 pilot 中完成） |
+
+结果（88 个运行）在仓库根目录的 `data/fedtraj_results_r17_20261026_runs.tar.gz` 和 `_ckpt.tar.gz`，解包到 `results_r17/`；配对比较用 `paper/scripts/analyze_r17.py`，口径与第 0.4 节相同。
+
 ## 1. 方法与配置对照
 
 FedTR（备用方案，留作下一篇；本次论文见第 0 节）的统一原理是"目标不变的调度"：两层都只改变优化路径，SGD 一阶意义下不改变联邦目标。

@@ -55,10 +55,25 @@ Fed-SSBR stages (after smoke and timing, which include the CQS / UDR configurati
                  re-tuned), seeds 1-5 on the two main settings.  The seeds were fixed before any of these runs and
                  every result is reported
 
+Checks for the revision after R16 (fixed on 2026-10-26, after all results of R16 were known, before any of
+these runs; every run is reported).  Output in ``runs_r17/`` on a second server (two RTX 4090), the two main
+settings, all other settings as in the paper:
+    r17-order       admission timing at fixed visit counts.  Seeds 1-8: CQS and CQS with descending quotas
+                    (1.0, 0.8, 0.6), both with the BatchNorm statistics re-estimated on all windows after the local
+                    epochs (``--bn-recal all``), so that the two differ only in when the windows are used.  Seeds
+                    1-3: descending quotas without re-estimation (size of the BatchNorm effect) and CQS exactly as
+                    in the paper (re-estimation effect and agreement with the first server).
+    r17-lstm-pilot  second backbone (``--backbone lstm``, no CV anchor): FedAvg, seed 1, learning rate 5e-4,
+                    1e-3, 2e-3.  ``--r17-select`` picks per setting the rate with the lowest best validation 5 s
+                    RMSE of FedAvg and writes runs_r17/tuned_r17.json (the rate is chosen on the baseline only)
+    r17-lstm        seeds 1-5 with the selected rate: FedAvg, CQS, FedBSS-fixed, CQS-random
+    r17-main        r17-order followed by r17-lstm (r17-order alone while tuned_r17.json is missing)
+
 Usage
     python -m fedtraj.jobs --stage pilot              # print the remaining commands of a stage
     python -m fedtraj.jobs --select-tuned             # after the tune stage
     python -m fedtraj.jobs --ssbr-select              # after the ssbr-pilot stage
+    python -m fedtraj.jobs --r17-select               # after the r17-lstm-pilot stage
 """
 
 from __future__ import annotations
@@ -69,14 +84,16 @@ import json
 from pathlib import Path
 
 STAGES = ["smoke", "timing", "pilot", "tune", "main", "ablation", "robust", "ssbr-pilot", "ssbr-main",
-          "ssbr-robust", "ssbr-extra", "ssbr-combo"]
+          "ssbr-robust", "ssbr-extra", "ssbr-combo", "r17-smoke", "r17-order", "r17-lstm-pilot", "r17-lstm",
+          "r17-main"]
 TUNE_GRID = {
     "fedprox": ("--mu", ["1e-4", "1e-3", "1e-2"]),
     "fedadam": ("--server-lr", ["0.003", "0.01", "0.03"]),
     "fedavgm": ("--server-lr", ["0.1", "0.3", "1.0"]),
     "fedavg": ("--server-lr", ["1.0", "1.5", "2.0"]),
 }
-STAGE_OUT = {"smoke": "runs_smoke", "timing": "runs_timing"}
+STAGE_OUT = {"smoke": "runs_smoke", "timing": "runs_timing", "r17-smoke": "runs_r17_smoke",
+             "r17-order": "runs_r17", "r17-lstm-pilot": "runs_r17", "r17-lstm": "runs_r17", "r17-main": "runs_r17"}
 OURS = ["--algo", "fedtr"]                                   # both levels: routing + adaptive budget + lc
 FIXED = OURS + ["--budget", "fixed"]                          # without the client-level budget
 SAMPLE_ONLY = OURS + ["--budget", "fixed", "--agg", "avg"]    # sample level only, FedAvg aggregation
@@ -94,6 +111,14 @@ SSBR_GATE_M = 0.02                                            # pilot gate: CQS 
 # Seeds 6-8 for the key configurations: the pilot gains at the best-validation checkpoint were about 0.02-0.045 m,
 # and with five seeds the 95% interval half-width is 1.24 s_d (eight seeds: 0.84 s_d).  Fixed before ssbr-main.
 SSBR_KEY_SEEDS = range(6, 9)
+
+# Checks after R16
+BN = ["--bn-recal", "all"]                                    # BatchNorm statistics re-estimated on all windows
+CQS_DESC = CQS + ["--cqs-direction", "descending"]            # quotas 1.0, 0.8, 0.6: same counts, reversed timing
+# second backbone without the CV anchor; evaluation and scoring in batches of 1024 windows, because the cuDNN LSTM
+# needs about 2.4 GiB of workspace for a batch of 4096 (the batch size does not change the per-window predictions)
+LSTM = ["--backbone", "lstm", "--eval-batch", "1024"]
+R17_LSTM_LR = ["5e-4", "1e-3", "2e-3"]                        # pilot grid of the LSTM learning rate (FedAvg)
 
 
 def ssbr_settings(NG, HD):
@@ -249,6 +274,40 @@ def specs(stage, NG, HD, tuned=None):
                 mu = tuned[setting_key(data, part)]["fedprox"]
                 for e in (CQS + ["--nova"], CQS + ["--prox-mu", mu]):
                     yield data, part, s, e
+    elif stage == "r17-smoke":
+        tiny = ["--rounds", "2", "--local-epochs", "3", "--max-windows", "1500", "--save-checkpoint", "0",
+                "--cqs-warmup", "1", "--bss-warmup", "1"]
+        for data, part in ssbr_settings(NG, HD):
+            for e in (CQS + BN, CQS_DESC + BN, CQS_DESC, CQS, ["--algo", "fedavg"] + LSTM,
+                      CQS + LSTM, ["--algo", "fedbss"] + LSTM, CQS_RANDOM + LSTM):
+                yield data, part, 1, e + tiny
+    elif stage == "r17-order":
+        for s in range(1, 9):                      # seed-major, so that partial results cover both settings
+            for data, part in ssbr_settings(NG, HD):
+                for e in (CQS + BN, CQS_DESC + BN):
+                    yield data, part, s, e
+        for s in range(1, 4):
+            for data, part in ssbr_settings(NG, HD):
+                for e in (CQS_DESC, CQS):
+                    yield data, part, s, e
+    elif stage == "r17-lstm-pilot":
+        for data, part in ssbr_settings(NG, HD):
+            for lr in R17_LSTM_LR:
+                yield data, part, 1, ["--algo", "fedavg", "--lr", lr] + LSTM
+    elif stage in ("r17-lstm", "r17-main"):
+        if stage == "r17-main":
+            yield from specs("r17-order", NG, HD, tuned)
+        if tuned is None:
+            if stage == "r17-lstm":
+                raise SystemExit("r17-lstm needs runs_r17/tuned_r17.json: run the r17-lstm-pilot stage, then "
+                                 "`python -m fedtraj.jobs --r17-select`")
+            print("r17-main: runs_r17/tuned_r17.json is missing, so only the r17-order runs are listed")
+            return
+        for s in range(1, 6):
+            for data, part in ssbr_settings(NG, HD):
+                lr = tuned[setting_key(data, part)]["lstm_lr"]
+                for e in (["--algo", "fedavg"], CQS, ["--algo", "fedbss"], CQS_RANDOM):
+                    yield data, part, s, e + ["--lr", lr] + LSTM
     else:
         raise SystemExit(f"unknown stage {stage}")
 
@@ -263,6 +322,8 @@ def build_jobs(stage, out_dir=None, ngsim="data/fedtraj_ngsim", highd="data/fedt
         tuned = load_tuned("runs_fedtraj")
     if stage in ("ssbr-main", "ssbr-extra", "ssbr-combo") and tuned is None:
         tuned = load_tuned(out_dir, "tuned_ssbr.json")
+    if stage in ("r17-lstm", "r17-main") and tuned is None:
+        tuned = load_tuned(out_dir, "tuned_r17.json")
     jobs, seen = [], set()
     for data, part, seed, extra in specs(stage, ngsim, highd, tuned):
         argv = ["--data-dir", data, "--partition", part, "--seed", str(seed), "--out-dir", out_dir] + extra
@@ -397,12 +458,50 @@ def ssbr_select(out_dir="runs_fedtraj", ngsim="data/fedtraj_ngsim", highd="data/
     return any(go)
 
 
+def r17_select(out_dir="runs_r17", ngsim="data/fedtraj_ngsim", highd="data/fedtraj_highd"):
+    """After r17-lstm-pilot: per main setting, the LSTM learning rate with the lowest best validation 5 s RMSE of
+    FedAvg (seed 1), written to tuned_r17.json.  The file is not written if, in a setting, the selected FedAvg
+    model is not below CV extrapolation on validation (the backbone would then not be a meaningful check).
+    Returns 0 when the file was written, 2 when pilot runs are missing, 3 when the CV check fails."""
+    from fedtraj.train import parse_args
+
+    tuned, ok = {}, True
+    for data, part in ssbr_settings(ngsim, highd):
+        key = setting_key(data, part)
+        scores, cv = {}, None
+        for lr in R17_LSTM_LR:
+            a = parse_args(["--data-dir", data, "--partition", part, "--seed", "1", "--algo", "fedavg", "--lr", lr]
+                           + LSTM)
+            f = Path(out_dir) / Path(data).name / part / a.run_id / "result.json"
+            if not f.exists():
+                print(f"missing {f}: finish the r17-lstm-pilot stage first")
+                return 2
+            r = json.loads(f.read_text(encoding="utf-8"))
+            scores[lr] = float("inf") if r.get("diverged_round") else r["best_val_5s"]
+            cv = r["cv_reference"]["valid"]["5s"]
+        best = min(scores, key=scores.get)
+        below = scores[best] < cv
+        ok = ok and below
+        tuned[key] = {"lstm_lr": best, "fedavg_best_val_5s": scores, "cv_val_5s": cv}
+        print(f"{key:22s} FedAvg-LSTM best validation 5 s: " + "  ".join(f"lr {k}: {v:.4f}" for k, v in scores.items())
+              + f"  -> lr {best}; CV {cv:.4f} ({'below CV' if below else 'NOT below CV'})")
+    if not ok:
+        print("STOP: the LSTM backbone is not below CV extrapolation in every setting; tuned_r17.json not written")
+        return 3
+    p = Path(out_dir) / "tuned_r17.json"
+    p.write_text(json.dumps(tuned, indent=1), encoding="utf-8")
+    print(f"wrote {p}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stage", choices=STAGES)
     ap.add_argument("--select-tuned", action="store_true")
     ap.add_argument("--ssbr-select", action="store_true",
                     help="after ssbr-pilot: go / stop check and FedProx mu -> tuned_ssbr.json")
+    ap.add_argument("--r17-select", action="store_true",
+                    help="after r17-lstm-pilot: LSTM learning rate by the FedAvg validation error -> tuned_r17.json")
     ap.add_argument("--out-dir", default=None)
     ap.add_argument("--ngsim", default="data/fedtraj_ngsim")
     ap.add_argument("--highd", default="data/fedtraj_highd")
@@ -414,8 +513,10 @@ def main():
     if args.ssbr_select:
         ssbr_select(args.out_dir or "runs_fedtraj", args.ngsim, args.highd)
         return
+    if args.r17_select:
+        raise SystemExit(r17_select(args.out_dir or "runs_r17", args.ngsim, args.highd))
     if not args.stage:
-        ap.error("--stage, --select-tuned or --ssbr-select is required")
+        ap.error("--stage, --select-tuned, --ssbr-select or --r17-select is required")
     for j in build_jobs(args.stage, args.out_dir, args.ngsim, args.highd):
         print(f"{args.python} -m fedtraj.train {' '.join(j['argv'])}")
 

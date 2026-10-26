@@ -8,6 +8,9 @@ with ``use_residual=False``), with two interface changes:
 * the output is a residual relative to constant-velocity extrapolation, in units of the per-step
   residual scale (``data.FeatureTransform.res_scale``).  ``data`` adds the CV displacement and multiplies by
   the scale, so the network starts from the kinematic solution and every loss is measured in meters.
+
+``LSTMEncoderDecoder`` is a second, structurally different backbone without the CV anchor and without the zero
+initialization (``build_model(backbone="lstm")``), used to check the scheduler on another predictor.
 """
 
 from __future__ import annotations
@@ -113,7 +116,47 @@ class TrajectoryPredictor(nn.Module):
         return self.output_head(decoded)
 
 
-def build_model(cfg=None):
+class LSTMEncoderDecoder(nn.Module):
+    """Second backbone (``--backbone lstm``): an LSTM encoder-decoder without the CV anchor.
+
+    The layout of the vanilla LSTM encoder-decoder baseline (V-LSTM) of Deo and Trivedi (2018): a linear input
+    embedding with LeakyReLU, a one-layer LSTM encoder whose last hidden state, after a second linear embedding,
+    is repeated as the input of every decoder step, a one-layer LSTM decoder and a linear output layer.  The input
+    is the same 44-channel frame sequence as for ``TrajectoryPredictor``.  The output is the future displacement
+    in units of its per-step training standard deviation around the training mean (``data.FeatureTransform``
+    with ``anchor="none"``), so no window-specific kinematic extrapolation enters the prediction.  PyTorch's
+    default initialization; no normalization layers and no dropout.
+    """
+
+    def __init__(self, input_size=44, pred_len=50, output_size=2, emb_size=64, enc_size=128, dyn_size=64,
+                 dec_size=128):
+        super().__init__()
+        self.pred_len = pred_len
+        self.ip_emb = nn.Linear(input_size, emb_size)
+        self.enc_lstm = nn.LSTM(emb_size, enc_size, batch_first=True)
+        self.dyn_emb = nn.Linear(enc_size, dyn_size)
+        self.dec_lstm = nn.LSTM(dyn_size, dec_size, batch_first=True)
+        self.op = nn.Linear(dec_size, output_size)
+        self.act = nn.LeakyReLU(0.1)
+
+    def forward(self, x):                       # x: [B, obs_len, input_size] -> [B, pred_len, 2]
+        self.enc_lstm.flatten_parameters()
+        self.dec_lstm.flatten_parameters()
+        _, (h, _) = self.enc_lstm(self.act(self.ip_emb(x)))
+        enc = self.act(self.dyn_emb(h[-1]))                         # [B, dyn_size]
+        dec, _ = self.dec_lstm(enc.unsqueeze(1).expand(-1, self.pred_len, -1).contiguous())
+        return self.op(dec)
+
+
+BACKBONES = ("tcngru", "lstm")
+
+
+def build_model(cfg=None, backbone="tcngru"):
+    """``tcngru``: the CV-anchored predictor of the paper; ``lstm``: the second backbone (no CV anchor)."""
+    if backbone == "lstm":
+        return LSTMEncoderDecoder(**(cfg or {}))
+    if backbone != "tcngru":
+        raise ValueError(f"unknown backbone {backbone}; have {BACKBONES}")
     return TrajectoryPredictor(**(cfg or {}))
 
 

@@ -9,6 +9,10 @@ Prediction: displacement from the last observed position over the 50 future fram
     pred = CV + res_scale * network_output,
 where CV extrapolates the mean of the last ``CV_K`` observed increments and ``res_scale`` [50, 2] is the
 training standard deviation of the CV residual (a fixed reparameterization; the objective is unchanged).
+With ``anchor="none"`` (the LSTM backbone) there is no kinematic anchor:
+    pred = y_mean + y_scale * network_output,
+``y_mean`` and ``y_scale`` [50, 2] being the training mean and standard deviation of the displacement itself,
+i.e. a fixed target standardization that is the same for every window.
 Loss: mean squared displacement error in m^2 over the 50 steps and 2 coordinates, divided by the constant
 ``loss_scale`` (mean CV loss on the training split) for numerical conditioning.
 """
@@ -78,9 +82,18 @@ class WindowStore:
 
 
 class FeatureTransform:
-    """Fixed input standardization and residual scale, fitted on a fixed subsample of training windows."""
+    """Fixed input standardization and output scales, fitted on a fixed subsample of training windows.
 
-    def __init__(self, store: WindowStore, n_fit=100000, seed=0):
+    ``anchor``: "cv" (the predictor returns a correction of CV extrapolation) or "none" (it returns the
+    standardized displacement).
+    """
+
+    ANCHORS = ("cv", "none")
+
+    def __init__(self, store: WindowStore, n_fit=100000, seed=0, anchor="cv"):
+        if anchor not in self.ANCHORS:
+            raise ValueError(f"unknown anchor {anchor}; have {self.ANCHORS}")
+        self.anchor = anchor
         self.store = store
         self.cv_k = store.cv_k
         dev = store.device
@@ -93,6 +106,8 @@ class FeatureTransform:
         s2 = torch.zeros(44, device=dev, dtype=torch.float64)
         r1 = torch.zeros(PRED, 2, device=dev, dtype=torch.float64)
         r2 = torch.zeros(PRED, 2, device=dev, dtype=torch.float64)
+        y1 = torch.zeros(PRED, 2, device=dev, dtype=torch.float64)      # displacement moments (anchor "none")
+        y2 = torch.zeros(PRED, 2, device=dev, dtype=torch.float64)
         n_rows, n_win = 0, 0
         for s in range(0, sel.numel(), 10000):
             w = store.windows(sel[s:s + 10000])
@@ -104,13 +119,19 @@ class FeatureTransform:
             r = (fut - cv).double()
             r1 += r.sum(0)
             r2 += (r * r).sum(0)
+            y = fut.double()
+            y1 += y.sum(0)
+            y2 += (y * y).sum(0)
             n_win += r.shape[0]
-            del w, f, r
+            del w, f, r, y
         mean = s1 / n_rows
         self.mean = mean.float()
         self.std = (s2 / n_rows - mean * mean).clamp_min(0).sqrt().float().clamp_min(1e-3)
         rm = r1 / n_win
         self.res_scale = (r2 / n_win - rm * rm).clamp_min(0).sqrt().float().clamp_min(0.01)   # [50, 2]
+        ym = y1 / n_win
+        self.y_mean = ym.float()                                                              # [50, 2]
+        self.y_scale = (y2 / n_win - ym * ym).clamp_min(0).sqrt().float().clamp_min(0.01)    # [50, 2]
         self.k = torch.arange(1, PRED + 1, device=dev, dtype=torch.float32)[None, :, None]
         self.loss_scale = float(store.meta["loss_scale"])
 
@@ -139,7 +160,14 @@ class FeatureTransform:
         return x, fut, cv
 
     def predict(self, model, x, cv):
-        return cv + model(x) * self.res_scale
+        if self.anchor == "cv":
+            return cv + model(x) * self.res_scale
+        return self.y_mean + model(x) * self.y_scale
+
+    def state(self):
+        """Fitted statistics, stored with each checkpoint."""
+        return {"mean": self.mean.cpu(), "std": self.std.cpu(), "res_scale": self.res_scale.cpu(),
+                "y_mean": self.y_mean.cpu(), "y_scale": self.y_scale.cpu(), "anchor": self.anchor}
 
 
 def window_sq_error(pred, fut):

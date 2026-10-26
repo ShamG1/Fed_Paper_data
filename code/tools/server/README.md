@@ -28,3 +28,15 @@ setsid nohup ./run_rest.sh >> run_all.log 2>&1 < /dev/null &
 - 10-22 23:17，pilot 结束后：FedProx 网格扩展到 μ = 1e-4 … 1（只改 `jobs.py`）。备份 `fedtraj_code_backup_1022_2317.tar.gz`；第一次 pilot 的判断结果保存为 `ssbr_select_pilot1.txt`。
 - 10-22 23:36：ssbr-main 加入 5 个关键配置的种子 6–8，README 写入预先确定的分析（只改 `jobs.py`、`README.md`）。备份 `fedtraj_code_backup_1022_2336.tar.gz`。
 - 10-24 11:01，ssbr-extra 运行中：加入 `--nova`、`--prox-mu` 和 ssbr-combo 阶段（改 `train.py`、`jobs.py`、`README.md`）。替换前在 CPU 上确认原有 18 个配置的结果逐位不变，并在服务器上确认 pilot、main、robust、extra 的任务列表不变。备份 `fedtraj_code_backup_1024_1101.tar.gz`。
+
+## 第二台服务器（2026-10-26，R16 之后的补充检查）
+
+两块 RTX 4090（24 GB），项目目录 `/root/fedtraj_proj/code`，环境 `/root/envs/t24`（conda 建的 Python 3.10.22，pip 装 torch 2.4.1+cu121、numpy 2.0.1，torch 版本与第一台相同）。数据用仓库里的 Git LFS 分卷上传，`sha256sum -c` 和 `python -m fedtraj.manifest verify` 都通过。服务器时钟是 UTC，下表是北京时间。
+
+| 文件 | 作用 | 状态 |
+|---|---|---|
+| `run_r17.sh` | r17-smoke（任何一个失败就停）→ r17-lstm-pilot → `--r17-select` → r17-main（r17-order，然后 r17-lstm） | 10-26 11:06 启动；smoke 16/16，pilot 6/6（11:07–11:23），main 82/82（11:23–18:10），无失败、无发散 |
+
+- 显存：每块卡按 22.5 GB 装任务，每卡最多 4 个。CV 锚定骨干用第一台的值（NGSIM 4.5 GB、highD 6.0 GB）；LSTM 用这台实测的峰值加 CUDA 上下文（3.7、4.9 GB，`--job-gb lstm:<数据集>=GB`）。第一次手动试跑 smoke 时，两个 highD-LSTM 任务在验证时显存不足，重试后通过；之后把 LSTM 的评估 batch 改为 1024，并改用上面的显存估计，`run_r17.sh` 里的 smoke 一次通过。
+- 代码：`run_r17.sh` 启动前上传的代码与仓库中的提交相同（各文件的修改时间都早于上传）。
+- 结果：服务器上打包的 `results_r17.tgz` 下载后与服务器核对过 SHA-256；按“结果与日志”“检查点”拆成仓库根目录的 `data/fedtraj_results_r17_20261026_runs.tar.gz` 和 `_ckpt.tar.gz`（都解包到 `results_r17/`），拆分后逐文件与原包一致。

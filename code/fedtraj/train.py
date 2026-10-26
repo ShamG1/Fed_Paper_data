@@ -63,6 +63,16 @@ Server option ``--reweight udr`` (update-deviation reweighting, the server layer
     the mean effective number of clients of Fed-SSBR in the pilot).
 FedBSS-mean (``--algo fedbss --bss-split mean``): the always-admitted low-loss group of each round is the set of
     windows whose loss does not exceed the client's mean loss, instead of the fixed fraction ``--bss-min``.
+Checks added for the revision after R16 (2026-10-26, after all results of the paper):
+    ``--cqs-direction descending``: the CQS quotas in reverse order, 1.0 / 0.8 / 0.6 for E = 3, with the same
+    ranking (computed once per round).  Every window keeps its visit count (3 : 2 : 1); the highest-loss fifth is
+    used in the first local epoch instead of the last, and the last epoch uses the lowest-loss 60 % only.
+    ``--bn-recal all``: after the local epochs, re-estimate the BatchNorm running statistics of the local model on
+    all windows of the client (one pass in training mode without gradients, cumulative average).  With PyTorch's
+    momentum 0.1 the uploaded statistics otherwise come almost entirely from the last local epoch, which under
+    descending quotas holds the lowest-loss windows only.
+    ``--backbone lstm``: the LSTM encoder-decoder of ``model.py`` instead of the CV-anchored predictor; it
+    predicts the standardized displacement without the CV anchor (``data.FeatureTransform``, anchor "none").
 Combinations with existing rules (added 2026-10-24, after the main results):
     ``--nova``: aggregate with the FedNova rule of ``--algo fednova`` (each update divided by the client's actual
     number of local optimizer steps, rescaled by tau_eff = sum_i p_i tau_i) instead of FedAvg; with fedprox, fedbss
@@ -98,7 +108,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fedtraj.data import (FeatureTransform, WindowStore, evaluate, score_windows,  # noqa: E402
                           stratify, window_sq_error)
-from fedtraj.model import build_model, count_parameters  # noqa: E402
+from fedtraj.model import BACKBONES, build_model, count_parameters  # noqa: E402
 
 ALGOS = ["central", "fedavg", "fedprox", "fednova", "fedavgm", "fedadam", "scaffold", "fedbss", "cqs", "fedlc",
          "fedtr"]
@@ -141,6 +151,14 @@ def parse_args(argv=None):
                     help="cqs: quota schedule from the floor to 1 (both end-point anchored; equal for E = 3)")
     ap.add_argument("--cqs-order", default="loss", choices=["loss", "random", "anti"],
                     help="cqs: admission order; random / anti = budget-matched controls")
+    ap.add_argument("--cqs-direction", default="ascending", choices=["ascending", "descending"],
+                    help="cqs: quotas rising from the floor to 1, or the same quotas in reverse order (same visit "
+                         "counts, the highest-loss windows in the first epoch)")
+    ap.add_argument("--bn-recal", default="none", choices=["none", "all"],
+                    help="re-estimate the BatchNorm statistics of each local model on all its windows after the "
+                         "local epochs")
+    ap.add_argument("--backbone", default="tcngru", choices=list(BACKBONES),
+                    help="tcngru: the CV-anchored predictor of the paper; lstm: LSTM encoder-decoder, no CV anchor")
     ap.add_argument("--static-beta", type=float, default=None, help="--reweight static: alpha_i ~ n_i^beta")
     ap.add_argument("--nova", action="store_true",
                     help="aggregate with the FedNova rule instead of FedAvg (with " + ", ".join(NOVA_ALGOS) + ")")
@@ -192,6 +210,10 @@ def parse_args(argv=None):
         ap.error("--udr-temp must be positive")
     if not 0.0 < args.cqs_floor <= 1.0:
         ap.error("--cqs-floor must lie in (0, 1]")
+    if args.cqs_direction != "ascending" and args.algo != "cqs":
+        ap.error("--cqs-direction needs --algo cqs")
+    if args.bn_recal != "none" and (args.algo == "central" or args.backbone != "tcngru"):
+        ap.error("--bn-recal needs a federated algorithm and the tcngru backbone (the LSTM has no BatchNorm)")
     default_slr = DEFAULT_SERVER_LR.get(args.algo, 1.0)
     if args.server_lr is None:
         args.server_lr = default_slr
@@ -231,6 +253,8 @@ def run_id_of(args, default_slr):
     if args.algo == "cqs":
         if args.cqs_order != "loss":
             tag += f"-{args.cqs_order}"
+        if args.cqs_direction != "ascending":
+            tag += "-desc"
         if args.cqs_pace != "linear":
             tag += f"-{args.cqs_pace}"
         if args.cqs_floor != 0.6:
@@ -261,6 +285,12 @@ def run_id_of(args, default_slr):
             tag += f"-r{args.rounds}"
         if args.local_epochs != 3:
             tag += f"-E{args.local_epochs}"
+    if args.bn_recal != "none":
+        tag += "-bn"
+    if args.backbone != "tcngru":
+        tag += f"-{args.backbone}"
+    if args.lr != 5e-4:
+        tag += f"-lr{args.lr:g}"
     if args.max_windows:
         tag += f"-mw{args.max_windows}"
     return f"{tag}_s{args.seed}"
@@ -382,6 +412,32 @@ def gradient_at(model, tf, starts, args, max_batches, seed_keys):
     return [a / max(nb, 1) for a in grads]
 
 
+@torch.no_grad()
+def recalibrate_bn(model, tf, starts, args, seed_keys):
+    """Re-estimate the BatchNorm running statistics of ``model`` on the windows ``starts`` (``--bn-recal all``).
+
+    One pass in training mode (dropout active, as when the statistics are collected during training) in shuffled
+    mini-batches of the training batch size, without gradients, with the cumulative average over the pass
+    (momentum None) instead of the exponential average.  The momentum is restored afterwards.  Returns the number
+    of BatchNorm layers.
+    """
+    bns = [m for m in model.modules() if isinstance(m, torch.nn.modules.batchnorm._BatchNorm)]
+    if not bns:
+        return 0
+    moms = [m.momentum for m in bns]
+    for m in bns:
+        m.reset_running_stats()
+        m.momentum = None
+    model.train()
+    perm = torch.randperm(starts.numel(), generator=gen(starts.device, *seed_keys, 55), device=starts.device)
+    for b in range(0, starts.numel(), args.batch_size):
+        x, _, _ = tf.batch(starts[perm[b:b + args.batch_size]])
+        model(x)
+    for m, mo in zip(bns, moms):
+        m.momentum = mo
+    return len(bns)
+
+
 def cqs_quotas(E, floor, pace="linear"):
     """Admitted fractions q_1..q_E of the loss-ordered windows under CQS (end points floor and 1).
 
@@ -422,8 +478,12 @@ def client_schedule(args, rnd, starts, global_model, tf, client_id, q=None):
             # stable sort: ties keep the window order (torch.sort has `stable` since 1.9, argsort only later)
             order = torch.sort(scores, descending=args.cqs_order == "anti", stable=True).indices
         # one ranking per round, reused by every local epoch; epoch e trains on the first ceil(n q_e) windows
-        out = [starts[order[:admitted_count(n, qe)]] for qe in cqs_quotas(E, args.cqs_floor, args.cqs_pace)]
-        return out, [None] * E, int(n - out[0].numel())
+        quotas = cqs_quotas(E, args.cqs_floor, args.cqs_pace)
+        if args.cqs_direction == "descending":
+            quotas = quotas[::-1]          # same prefixes of the same ranking, so the same visit counts
+        out = [starts[order[:admitted_count(n, qe)]] for qe in quotas]
+        # windows left out of at least one epoch (the first epoch under rising quotas, as before)
+        return out, [None] * E, int(n - min(o.numel() for o in out))
     if args.algo == "fedbss" and rnd >= args.bss_warmup:
         scores = score_windows(global_model, tf, starts, args.eval_batch)
         order = torch.argsort(scores)
@@ -642,13 +702,14 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     t_start = time.time()
     store = WindowStore(args.data_dir, args.partition, dev, max_windows=args.max_windows or None)
-    tf = FeatureTransform(store)
+    tf = FeatureTransform(store, anchor="none" if args.backbone == "lstm" else "cv")
     torch.manual_seed(args.seed)
-    gmodel = build_model().to(dev)
+    gmodel = build_model(backbone=args.backbone).to(dev)
     K = store.num_clients
     n_train = store.counts("train")
     print(f"[{args.run_id}] data={store.dir.name} partition={args.partition} clients={K} "
-          f"train windows={n_train} params={count_parameters(gmodel)} device={dev}", flush=True)
+          f"train windows={n_train} backbone={args.backbone} params={count_parameters(gmodel)} device={dev}",
+          flush=True)
 
     fields = ["round", "time_s", "train_loss", "val_1s", "val_2s", "val_3s", "val_4s", "val_5s", "val_mean",
               "val_loss_m2", "visits", "tail", "extra"]
@@ -672,8 +733,7 @@ def main(argv=None):
         if v["5s"] < best["val_5s"]:
             best.update(val_5s=v["5s"], round=rnd)
             if args.save_checkpoint:
-                torch.save({"model": gmodel.state_dict(), "round": rnd, "args": vars(args),
-                            "tf": {"mean": tf.mean.cpu(), "std": tf.std.cpu(), "res_scale": tf.res_scale.cpu()}},
+                torch.save({"model": gmodel.state_dict(), "round": rnd, "args": vars(args), "tf": tf.state()},
                            out / "best.pt")
             else:
                 best["state"] = {k: t.detach().clone() for k, t in gmodel.state_dict().items()}
@@ -695,7 +755,7 @@ def main(argv=None):
                 break
     else:
         server = Server(gmodel, args)
-        lmodel = build_model().to(dev)
+        lmodel = build_model(backbone=args.backbone).to(dev)
         params_l = [p for p in lmodel.parameters() if p.requires_grad]
         client_starts = [store.client_starts("train", c) for c in range(K)]
         c_local = None
@@ -728,6 +788,8 @@ def main(argv=None):
                 steps, loss, opt = train_epochs(lmodel, tf, epochs, args, (args.seed, rnd, c), epoch_weights=weights,
                                                 prox_ref=prox_ref, scaffold_corr=corr, precond_acc=acc)
                 del opt
+                if args.bn_recal == "all":
+                    recalibrate_bn(lmodel, tf, st, args, (args.seed, rnd, c))
                 res = {"n": st.numel(), "steps": steps,
                        "state": {k: v.detach().clone() for k, v in lmodel.state_dict().items()}}
                 if acc is not None:

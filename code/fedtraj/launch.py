@@ -51,9 +51,14 @@ def stamp():
 
 
 def job_memory(job, table, overhead):
-    """Estimated GPU memory (GB) of a job: measured value for its dataset, else frames.npy + overhead."""
+    """Estimated GPU memory (GB) of a job: measured value for its dataset (``<backbone>:<dataset>`` first for a
+    non-default ``--backbone``), else frames.npy + overhead."""
     argv = job["argv"]
     data = Path(argv[argv.index("--data-dir") + 1])
+    if "--backbone" in argv:
+        key = f"{argv[argv.index('--backbone') + 1]}:{data.name}"
+        if key in table:
+            return table[key]
     if data.name in table:
         return table[data.name]
     frames = data / "frames.npy"

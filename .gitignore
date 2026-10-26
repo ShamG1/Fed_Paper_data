@@ -1,5 +1,6 @@
 # unpacked archives and generated files
 results_fedtraj_20261025/
+results_r17/
 code/data/
 __pycache__/
 *.pyc

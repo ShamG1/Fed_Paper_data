@@ -1,18 +1,22 @@
 # Code and data: Curriculum-Quota Scheduling for Federated Vehicle Trajectory Prediction
 
 Training code, the processed NGSIM dataset, all 274 experiment runs, and the scripts and statistics behind every
-number, table, and data figure of the manuscript (revision R12, 25 October 2026).
+number, table, and data figure of the manuscript (revision R12, 25 October 2026), and the 88 runs of two checks
+added after revision R16 (26 October 2026).
 
 | Path | Content | Size |
 |---|---|---|
 | `data/fedtraj_results_20261025_part1.tar.gz` (Git LFS) | `result.json` and `log.csv` of all 274 runs and of the 8 timing runs, launcher and training logs, summary tables, and 80 of the 274 checkpoints (`best.pt`) | 243 MiB |
 | `data/fedtraj_results_20261025_part2.tar.gz`, `part3` (Git LFS) | the other 194 checkpoints | 309 + 268 MiB |
+| `data/fedtraj_results_r17_20261026_runs.tar.gz` (Git LFS) | checks after R16: `result.json` and `log.csv` of all 88 runs, training and launcher logs, and the selected learning rates of the LSTM backbone | 1.4 MiB |
+| `data/fedtraj_results_r17_20261026_ckpt.tar.gz` (Git LFS) | the 88 checkpoints of these runs | 164 MiB |
 | `data/fedtraj_ngsim.tar.gz.part01`-`part04` (Git LFS) | processed NGSIM dataset (`frames.npy`, window and track indices, client partitions, `meta.json`, `MANIFEST.json`), one tar.gz split into four parts | 902 MiB |
 | `code/fedtraj/` | preprocessing, training, job lists, launcher, and summaries; section 0 of `code/fedtraj/README.md` lists the configurations, the run order, and the analysis fixed before the multi-seed runs | |
 | `code/tools/dataset_parts.py` | checks and unpacks the dataset parts (and shows how they were made) | |
 | `code/tools/server/` | shell scripts used on the training server, with the run log | |
 | `paper/scripts/` | statistics, tables, data figures, trajectory examples, and the number and style checks of the manuscript | |
 | `paper/data/` | `stats_r12.json` (every reported statistic), `figdata_r12.json` (figure data), `difficulty_r12.json` (model-free client statistics), and a readable dump | |
+| `paper/scripts/analyze_r17.py`, `paper/data/r17/` | paired comparisons of the checks after R16, as text and JSON | |
 | `paper/data/qualitative/` | trajectory examples: selection rule, per-window errors of all Q5 and lane-change test windows, and the drawn trajectories and raw frames of the 12 selected windows (six NGSIM, six highD) | |
 | `paper/figures/fig_traj.*`, `paper/fig_traj_snippet.tex` | trajectory figure, with its LaTeX figure environment and paragraph | |
 | `paper/dataset_meta/` | `meta.json`, `MANIFEST.json` (size and SHA-256 of every file), and model-free statistics of the two processed datasets | |
@@ -26,7 +30,8 @@ The Git LFS bandwidth of this repository is limited, so clone without the large 
 ```
 GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/ShamG1/Fed_Paper_data.git     # PowerShell: $env:GIT_LFS_SKIP_SMUDGE=1; git clone ...
 cd Fed_Paper_data
-git lfs pull --include "data/fedtraj_results_*"           # all runs, with checkpoints (820 MiB)
+git lfs pull --include "data/fedtraj_results_*"           # all runs, with checkpoints (985 MiB)
+git lfs pull --include "data/fedtraj_results_r17_20261026_runs.tar.gz"   # only the checks after R16, no checkpoints
 git lfs pull --include "data/fedtraj_ngsim.tar.gz.part*"  # processed NGSIM dataset (902 MiB)
 sha256sum -c --ignore-missing SHA256SUMS.txt              # Linux / macOS
 ```
@@ -47,6 +52,35 @@ python paper/scripts/make_tables_r12.py
 The three archives unpack into one directory, `results_fedtraj_20261025/`. `make_stats_r12.py` rewrites
 `paper/data/stats_r12.json` and `figdata_r12.json`; the rewritten files are identical to the committed ones, so
 `git status` shows no change.
+
+## Checks after revision R16
+
+Two checks were added after all results of revision R16 were known. Their stages (`r17-*` in
+`code/fedtraj/jobs.py`) were fixed before any of their runs, and all 88 runs are reported. They ran on a second
+server with two RTX 4090 GPUs (`code/tools/server/README.md`); section 0.5 of `code/fedtraj/README.md` describes
+the options and the checks of the code.
+
+- Admission timing at fixed visit counts: CQS with its rising quotas (0.6, 0.8, 1.0) and with the same ranking and
+  falling quotas (1.0, 0.8, 0.6; `--cqs-direction descending`), which give every window the same number of visits.
+  Both re-estimate the BatchNorm statistics of each local model on all windows of the client after the local
+  epochs (`--bn-recal all`); eight seeds, plus three seeds of each without re-estimation.
+- Second backbone: an LSTM encoder-decoder without the constant-velocity anchor (`--backbone lstm`) with FedAvg,
+  CQS, FedBSS-fixed, and CQS-random, five seeds. Its learning rate was chosen from 5e-4, 1e-3, and 2e-3 on the
+  validation error of FedAvg with seed one.
+
+```
+tar -xzf data/fedtraj_results_20261025_part1.tar.gz       # result files of the paper -> results_fedtraj_20261025/
+tar -xzf data/fedtraj_results_r17_20261026_runs.tar.gz    # -> results_r17/
+tar -xzf data/fedtraj_results_r17_20261026_ckpt.tar.gz    # optional: the checkpoints, into the same directories
+python paper/scripts/analyze_r17.py --txt paper/data/r17/analysis_r17.txt --json paper/data/r17/analysis_r17.json
+```
+
+`analysis_r17.txt` lists every configuration and the paired differences with the definitions of the paper; the
+rewritten files are identical to the committed ones. CQS ran on both servers with seeds one to three: the test 5 s
+RMSE differed by -0.5 to +3.0 mm on NGSIM and -2.4 to +9.3 mm on highD (on one server, three runs with the same
+seed differed by up to 7 and 9 mm). From `code/`, the runs are repeated by `tools/server/run_r17.sh`, or by
+`python -m fedtraj.launch --stage r17-lstm-pilot`, `python -m fedtraj.jobs --r17-select`, and
+`python -m fedtraj.launch --stage r17-main`.
 
 ## Processed NGSIM dataset and training
 
